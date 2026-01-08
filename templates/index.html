@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Downloader Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        /* --- GIAO DIỆN DARK MODE HIỆN ĐẠI --- */
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-main: #e0e0e0;
+            --text-dim: #a0a0a0;
+            --accent: #00bcd4; /* Màu Cyan dịu mắt */
+            --accent-hover: #008ba3;
+            --border: #333;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: --bg-color;
+            background: linear-gradient(135deg, #121212 0%, #0d1b2a 100%);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: var(--card-bg);
+            width: 700px;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid var(--border);
+        }
+
+        h2 { text-align: center; color: var(--accent); margin-top: 0; letter-spacing: 1px; }
+
+        /* Input & Controls */
+        .input-group { margin-bottom: 20px; display: flex; gap: 10px; }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: #2c2c2c;
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+        input[type="text"]:focus { border-color: var(--accent); }
+
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            background: var(--accent);
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        button:hover { background: var(--accent-hover); }
+        button:disabled { background: #555; cursor: not-allowed; }
+
+        /* Khu vực hiển thị thông tin Video (ẩn lúc đầu) */
+        #videoInfoArea {
+            display: none;
+            background: #252525;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+            align-items: flex-start;
+            gap: 15px;
+        }
+        
+        #videoInfoArea.active { display: flex; }
+
+        .thumb-img {
+            width: 160px;
+            border-radius: 6px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+
+        .info-details { flex: 1; }
+        .info-title { font-size: 18px; font-weight: bold; margin-bottom: 5px; color: #fff; }
+        .info-meta { font-size: 14px; color: var(--text-dim); margin-bottom: 15px; }
+
+        /* Dropdown chọn định dạng */
+        .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        select {
+            width: 100%;
+            padding: 10px;
+            background: #333;
+            color: white;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+
+        /* Log Terminal */
+        .log-box {
+            background: #000;
+            color: #00ff00;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            height: 150px;
+            overflow-y: auto;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            margin-top: 20px;
+        }
+        .log-entry { margin-bottom: 2px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>MEDIA DOWNLOADER CENTER</h2>
+    
+    <div class="input-group">
+       <input type="text" id="url" placeholder="Dán link (YouTube, Facebook, TikTok, Twitter, Reddit...) vào đây..." autocomplete="off">
+        <button onclick="scanVideo()" id="scanBtn">🔍 Quét Video</button>
+    </div>
+
+    <div id="videoInfoArea">
+        <img id="thumbDisplay" src="" class="thumb-img">
+        <div class="info-details">
+            <div id="titleDisplay" class="info-title">Đang tải thông tin...</div>
+            <div id="metaDisplay" class="info-meta"></div>
+            
+            <div class="options-grid">
+                <div>
+                    <label style="font-size:12px; color:#aaa;">Định dạng:</label>
+                    <select id="format" onchange="toggleQualityOption()">
+                        <option value="mp4">Video (MP4)</option>
+                        <option value="mp3">Âm thanh (MP3)</option>
+                    </select>
+                </div>
+                <div id="qualityGroup">
+                    <label style="font-size:12px; color:#aaa;">Độ phân giải:</label>
+                    <select id="quality">
+                        <option value="best">Tốt nhất (Mặc định)</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="startDownload()" id="dlBtn" style="width:100%; margin-top:15px; background: #ff4757; color: white;">
+                ⬇️ TẢI XUỐNG NGAY
+            </button>
+        </div>
+    </div>
+
+    <div class="log-box" id="logBox">
+        <div class="log-entry">Hệ thống sẵn sàng...</div>
+    </div>
+</div>
+
+<script>
+    var socket = io({transports: ['websocket'], upgrade: false});
+    var scanBtn = document.getElementById('scanBtn');
+    var dlBtn = document.getElementById('dlBtn');
+    var logBox = document.getElementById('logBox');
+    
+    // Hàm thêm log
+    function addLog(text, color = "#00ff00") {
+        var div = document.createElement('div');
+        div.className = 'log-entry';
+        div.style.color = color;
+        div.innerText = "> " + text;
+        logBox.appendChild(div);
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    // --- BƯỚC 1: QUÉT VIDEO ---
+    function scanVideo() {
+        var url = document.getElementById('url').value;
+        if (!url) return alert("Vui lòng nhập link!");
+
+        scanBtn.disabled = true;
+        scanBtn.innerText = "Đang quét...";
+        document.getElementById('videoInfoArea').classList.remove('active');
+        addLog("Đang lấy thông tin video...", "yellow");
+
+        fetch('/get_video_info', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url: url})
+        })
+        .then(response => response.json())
+        .then(data => {
+            scanBtn.disabled = false;
+            scanBtn.innerText = "🔍 Quét Video";
+
+            if(data.status == 'success') {
+                showVideoInfo(data);
+                addLog("Đã tìm thấy: " + data.title, "#00bcd4");
+            } else {
+                addLog("Lỗi quét: " + data.message, "red");
+                alert("Không thể lấy thông tin video. Kiểm tra lại link!");
+            }
+        })
+        .catch(err => {
+            scanBtn.disabled = false;
+            addLog("Lỗi kết nối server", "red");
+        });
+    }
+
+    // Hiển thị dữ liệu lên giao diện
+    function showVideoInfo(data) {
+        document.getElementById('videoInfoArea').classList.add('active');
+        document.getElementById('thumbDisplay').src = data.thumbnail;
+        document.getElementById('titleDisplay').innerText = data.title;
+        document.getElementById('metaDisplay').innerText = `Tác giả: ${data.author} | Thời lượng: ${data.duration}`;
+        
+        // Cập nhật dropdown độ phân giải
+        var qualitySelect = document.getElementById('quality');
+        qualitySelect.innerHTML = '<option value="best">Tốt nhất (Max)</option>'; // Reset
+        
+        data.resolutions.forEach(res => {
+            var opt = document.createElement('option');
+            opt.value = res;
+            opt.innerText = res + "p";
+            qualitySelect.appendChild(opt);
+        });
+    }
+
+    // Ẩn chọn độ phân giải nếu tải MP3
+    function toggleQualityOption() {
+        var fmt = document.getElementById('format').value;
+        document.getElementById('qualityGroup').style.display = (fmt === 'mp3') ? 'none' : 'block';
+    }
+
+    // --- BƯỚC 2: TẢI XUỐNG ---
+    function startDownload() {
+        var url = document.getElementById('url').value;
+        var format = document.getElementById('format').value;
+        var quality = document.getElementById('quality').value;
+
+        if (!socket.connected) socket.connect();
+
+        dlBtn.disabled = true;
+        dlBtn.innerText = "ĐANG XỬ LÝ...";
+        addLog("Bắt đầu tải xuống...", "white");
+
+        socket.emit('start_download', {url: url, format: format, quality: quality});
+    }
+
+    socket.on('log_update', function(msg) {
+        if(msg.data) addLog(msg.data);
+    });
+
+    socket.on('download_complete', function(msg) {
+        addLog("✅ Hoàn tất! Đang gửi file...", "#00bcd4");
+        
+        var downloadUrl = '/get_file/' + msg.file_id + '?name=' + encodeURIComponent(msg.user_filename);
+        
+        var tempLink = document.createElement('a');
+        tempLink.href = downloadUrl;
+        tempLink.setAttribute('download', msg.user_filename);
+        tempLink.style.display = 'none';
+        document.body.appendChild(tempLink);
+        tempLink.click();
+        document.body.removeChild(tempLink);
+        
+        setTimeout(() => {
+            dlBtn.disabled = false;
+            dlBtn.innerText = "⬇️ TẢI XUỐNG NGAY";
+        }, 2000);
+    });
+
+    socket.on('download_error', function() {
+        dlBtn.disabled = false;
+        dlBtn.innerText = "THỬ LẠI";
+        addLog("❌ Có lỗi xảy ra.", "red");
+    });
+</script>
+
+</body>
+</html>

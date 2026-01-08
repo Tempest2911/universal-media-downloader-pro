@@ -1,0 +1,13 @@
+# Bỏ qua thư mục ảo Python
+venv/
+env/
+
+# Bỏ qua các file biên dịch rác của Python
+__pycache__/
+*.pyc
+
+# QUAN TRỌNG: Không upload video đã tải về lên GitHub
+downloads/
+
+# File cấu hình hệ thống
+.DS_Store

@@ -1,0 +1,4 @@
+Flask==3.0.0
+yt-dlp>=2023.11.16
+flask-socketio==5.3.6
+eventlet==0.33.3
