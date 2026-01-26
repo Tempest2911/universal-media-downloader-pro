@@ -69,46 +69,60 @@ def process_download(url, format_type, quality):
             'outtmpl': os.path.join(DOWNLOAD_FOLDER, f"{file_id}.%(ext)s"),
             'noplaylist': True,
             'logger': SocketLogger(),
-            'writethumbnail': True,   # Tải ảnh bìa
-            'addmetadata': True,      # Gắn thông tin tác giả, tiêu đề vào file
+            # Hooks gửi tiến độ về web
             'progress_hooks': [lambda d: socketio.emit('log_update', {'data': f"Tiến độ: {d.get('_percent_str', '0%')} - Tốc độ: {d.get('_speed_str', 'N/A')}"}) if d['status'] == 'downloading' else None],
         }
 
+        # --- LOGIC XỬ LÝ CÁC ĐỊNH DẠNG ---
         if format_type == 'mp3':
             ydl_opts.update({
                 'format': 'bestaudio/best',
                 'postprocessors': [
                     {'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '192'},
-                    {'key': 'FFmpegMetadata'}, # Gắn metadata cho MP3
-                    {'key': 'EmbedThumbnail'}, # Gắn ảnh bìa vào file MP3
+                    {'key': 'FFmpegMetadata'},
+                    {'key': 'EmbedThumbnail'},
                 ],
             })
+            
+        elif format_type == 'gif':
+            # --- LOGIC MỚI CHO GIF ---
+            ydl_opts.update({
+                'format': 'bestvideo/best', # Chỉ tải hình ảnh tốt nhất, bỏ qua âm thanh
+                'postprocessors': [{
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': 'gif', # Ép FFmpeg chuyển sang .gif
+                }],
+            })
+            
         else: # Video MP4
             # Logic chọn độ phân giải
             if quality == 'best':
                 format_str = 'bestvideo+bestaudio/best'
             else:
-                # Tải video có chiều cao <= quality (vd: 1080) và ghép với audio tốt nhất
                 format_str = f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]"
 
             ydl_opts.update({
                 'format': format_str,
                 'merge_output_format': 'mp4',
                 'postprocessors': [
-                    {'key': 'FFmpegMetadata'}, # Gắn metadata cho MP4
-                    {'key': 'EmbedThumbnail'}, # Gắn ảnh bìa vào file MP4 (Một số player có thể không hiện)
+                    {'key': 'FFmpegMetadata'},
+                    {'key': 'EmbedThumbnail'},
                 ],
             })
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            socketio.emit('log_update', {'data': 'Đang phân tích và xử lý metadata...'})
+            socketio.emit('log_update', {'data': 'Đang phân tích và chuyển đổi...'})
             info = ydl.extract_info(url, download=True)
             
             # Lấy tên file gốc
-            real_title = info.get('title', 'video')
+            real_title = info.get('title', 'media')
             real_title = "".join([c for c in real_title if c.isalpha() or c.isdigit() or c in " .-_()[]"]).strip()
             
-            ext = 'mp3' if format_type == 'mp3' else 'mp4'
+            # Xác định đuôi file kết quả
+            if format_type == 'mp3': ext = 'mp3'
+            elif format_type == 'gif': ext = 'gif' # Đuôi gif
+            else: ext = 'mp4'
+            
             saved_filename = f"{file_id}.{ext}"
             user_filename = f"{real_title}.{ext}"
 
