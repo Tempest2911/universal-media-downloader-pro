@@ -21,7 +21,7 @@
 
         body {
             font-family: 'Segoe UI', sans-serif;
-            background-color: --bg-color;
+            background-color: var(--bg-color);
             background: linear-gradient(135deg, #121212 0%, #0d1b2a 100%);
             color: var(--text-main);
             display: flex;
@@ -273,8 +273,13 @@
 
             data.resolutions.forEach(res => {
                 var opt = document.createElement('option');
-                opt.value = res;
-                opt.innerText = res + "p";
+                if (typeof res === 'object') {
+                    opt.value = 'best';
+                    opt.innerText = 'Tải toàn bộ (ZIP)';
+                } else {
+                    opt.value = res;
+                    opt.innerText = res + "p";
+                }
                 qualitySelect.appendChild(opt);
             });
         }
